@@ -13,6 +13,11 @@ column :: [[a]] -> Int -> [a]
 column grid index = foldr (\xs acc -> xs!!index:acc) [] grid
 
 pmf :: [[Feature]] -> Int -> Feature -> Double
-pmf trainingData feature value = 
+pmf trainingData feature value =
     fromIntegral (length $ filter (==value) col) / (fromIntegral $ length col)
     where col = column trainingData feature
+
+entropy :: [[Feature]] -> Int -> Feature -> Double
+entropy trainingData feature value =
+    neg $ (pmf trainingData feature value) * logBase 2 $ pmf trainingData feature value
+
