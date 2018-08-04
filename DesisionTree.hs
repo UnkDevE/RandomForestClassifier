@@ -12,7 +12,18 @@ where
 import Data.List (nub)
 import Data.Maybe (fromJust)
 
+readMay :: (Read a) => String -> Maybe a
+readMay s = case reads s of
+                [(x, "")] -> Just x
+                _ -> Nothing
+
 data Feature = Continous Double | Discrete String deriving (Eq, Ord, Show)
+
+instance Read Feature where
+    readsPrec _ a = let r = readMay a :: Maybe Double in 
+                    case r of 
+                        Nothing -> [(Discrete a, "")]
+                        _ -> [(Continous $ fromJust r, "")]
 
 column :: [[a]] -> Int -> [a]
 column grid index = foldr (\xs acc -> xs!!index:acc) [] grid
@@ -86,7 +97,7 @@ goUp (item, []) = Nothing
 goDown :: Zipper a -> Maybe (Zipper a)
 goDown (Node x (item:xs), bs) = Just (item, NCrumb x (fst splitxs) (snd splitxs):bs)
     where splitxs = split 1 xs
-goDown (Node x [], bs) = Nothing 
+goDown (Node x [], bs) = Nothing
 
 next :: (Eq a) => Zipper a -> Maybe (Zipper a)
 next zipper
