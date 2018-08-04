@@ -67,7 +67,7 @@ type Zipper a = (Tree a, Breadcrumbs a)
 
 split :: Int -> [a] -> ([a], [a])
 split i xs = (snd $ unzip $ filter (\a -> fst a < i) zxs, snd $ unzip $ filter (\a -> i > fst a) zxs)
-    where zxs = zip [1..] xs
+    where zxs = zip [0..] xs
 
 treeTo :: Zipper a -> Int -> Maybe (Zipper a)
 treeTo (Node x xs, bs) branch
@@ -82,6 +82,11 @@ goRight (item, NCrumb x ls []:bs) = Nothing
 goUp :: Zipper a -> Maybe (Zipper a)
 goUp (item, NCrumb x ls rs:bs) = Just (Node x (ls ++ [item] ++ rs), bs)
 goUp (item, []) = Nothing
+
+goDown :: Zipper a -> Maybe (Zipper a)
+goDown (Node x (item:xs), bs) = Just (item, NCrumb x (fst splitxs) (snd splitxs):bs)
+    where splitxs = split 1 xs
+goDown (Node x [], bs) = Nothing 
 
 next :: (Eq a) => Zipper a -> Maybe (Zipper a)
 next zipper
@@ -119,7 +124,7 @@ id3 trainingData@(features, out) prevZipper@(Node x _, bs)
                                  in if nextZipper /= Nothing then id3 (features, out) (fromJust nextZipper) else newZipper
     | otherwise =
         id3 newFeatures
-            $ insertLevel prevZipper $ getSplitOrder (fst newFeatures) $ getBestFeature newFeatures
+            $ fromJust $ goDown $ insertLevel prevZipper $ getSplitOrder (fst newFeatures) $ getBestFeature newFeatures
     where outSet = getOutputSet trainingData prevZipper
           splitF = split out features
           newFeatures = ((fst splitF) ++ [outSet] ++ (snd splitF), out)
