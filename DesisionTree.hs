@@ -5,7 +5,8 @@ module DesisionTree
     Feature (..),
     Tree (..),
     evaluateTree,
-    id3
+    id3,
+    toTree
 )
 where
 
@@ -20,8 +21,8 @@ readMay s = case reads s of
 data Feature = Continous Double | Discrete String deriving (Eq, Ord, Show)
 
 instance Read Feature where
-    readsPrec _ a = let r = readMay a :: Maybe Double in 
-                    case r of 
+    readsPrec _ a = let r = readMay a :: Maybe Double in
+                    case r of
                         Nothing -> [(Discrete a, "")]
                         _ -> [(Continous $ fromJust r, "")]
 
@@ -94,6 +95,12 @@ goUp :: Zipper a -> Maybe (Zipper a)
 goUp (item, NCrumb x ls rs:bs) = Just (Node x (ls ++ [item] ++ rs), bs)
 goUp (item, []) = Nothing
 
+root :: (Eq a) => Zipper a -> Zipper a
+root zipper
+    | up /= Nothing = fromJust up
+    | otherwise = zipper
+    where up = goUp zipper
+
 goDown :: Zipper a -> Maybe (Zipper a)
 goDown (Node x (item:xs), bs) = Just (item, NCrumb x (fst splitxs) (snd splitxs):bs)
     where splitxs = split 1 xs
@@ -139,3 +146,6 @@ id3 trainingData@(features, out) prevZipper@(Node x _, bs)
     where outSet = getOutputSet trainingData prevZipper
           splitF = split out features
           newFeatures = ((fst splitF) ++ [outSet] ++ (snd splitF), out)
+
+toTree :: (Eq a) => Zipper a -> Tree a
+toTree zipper = fst $ root zipper
