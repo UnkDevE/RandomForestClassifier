@@ -4,7 +4,7 @@ module DesisionTree
 (
     Feature (..),
     Tree (..),
-    evaluateTree,
+    evaluateZipper,
     id3,
     toTree
 )
@@ -18,7 +18,7 @@ readMay s = case reads s of
                 [(x, "")] -> Just x
                 _ -> Nothing
 
-data Feature = Continous Double | Discrete String deriving (Eq, Ord, Show)
+data Feature = Continous Double | Discrete String | Any deriving (Eq, Ord, Show)
 
 instance Read Feature where
     readsPrec _ a = let r = readMay a :: Maybe Double in
@@ -119,21 +119,26 @@ isDiscrete :: Feature -> Bool
 isDiscrete (Discrete _) = True
 isDiscrete _ = False
 
-evaluate :: ([[Feature]], Int) -> (Feature, Int) -> ([[Feature]], Int)
-evaluate (features, out) (desision, feature)
-    | isDiscrete desision = (filter (\xs -> xs!!feature == desision) features, out)
-    | otherwise = (filter (\xs -> xs!!feature <= desision) features, out)
+isContinous :: Feature -> Bool
+isContinous (Continous _) = True
+isContinous _ = False
 
-evaluateTree :: ([[Feature]], Int) -> Zipper (Feature, Int) -> ([[Feature]], Int)
-evaluateTree trainingData zipper@(Node x _, bs)
-    | up /= Nothing = evaluateTree eval $ fromJust up
+evaluateData :: ([[Feature]], Int) -> (Feature, Int) -> ([[Feature]], Int)
+evaluateData (features, out) (desision, feature)
+    | isDiscrete desision = (filter (\xs -> xs!!feature == desision) features, out)
+    | isContinous desision = (filter (\xs -> xs!!feature <= desision) features, out)
+    | otherwise = (features, out)
+
+evaluateZipper :: ([[Feature]], Int) -> Zipper (Feature, Int) -> ([[Feature]], Int)
+evaluateZipper trainingData zipper@(Node x _, bs)
+    | up /= Nothing = evaluateZipper eval $ fromJust up
     | otherwise = eval
     where up = goUp zipper
-          eval = evaluate trainingData x
+          eval = evaluateData trainingData x
 
 getOutputSet :: ([[Feature]],Int) -> Zipper (Feature, Int) -> [Feature]
 getOutputSet trainingData@(feature, out) zipper =
-    column (fst $ evaluateTree trainingData zipper) out
+    column (fst $ evaluateZipper trainingData zipper) out
 
 id3 :: ([[Feature]], Int) -> Zipper (Feature, Int) -> Zipper (Feature, Int)
 id3 trainingData@(features, out) prevZipper@(Node x _, bs)
@@ -149,3 +154,28 @@ id3 trainingData@(features, out) prevZipper@(Node x _, bs)
 
 toTree :: (Eq a) => Zipper a -> Tree a
 toTree zipper = fst $ root zipper
+
+trainTree :: ([[Feature]], Int) -> Tree (Feature, Int)
+trainTree trainingData = toTree $ id3 trainingData (Node (Any, 0) [], [])
+
+eval :: Zipper (Feature, Int) -> Feature -> Bool
+eval (Node x _, _) feature
+    | isDiscrete $ fst x = feature == (fst x)
+    | isContinous $ fst x = feature <= (fst x)
+    | otherwise = True
+
+navigate :: Zipper (Feature, Int) -> [Feature] -> Zipper (Feature, Int)
+navigate zipper@(Node (_, nfeature) _, _) input
+    | eval zipper (input!!nfeature) = let down = goDown zipper
+                                    in if down /= Nothing then navigate (fromJust down) input else zipper
+    | otherwise = let n = next zipper
+                  in if n /= Nothing then navigate (fromJust n) input else zipper
+
+getNode :: Tree a -> a
+getNode (Node x _) = x 
+
+predict :: Tree (Feature, Int) -> [Feature] -> (Feature, Int)
+predict tree input = getNode $ fst $ navigate (tree, []) input 
+
+predictFail :: ([[Feature]], Int) -> (Feature, Int) -> Bool
+predictFail (_, outf) (_, fNo) = outf == fNo
