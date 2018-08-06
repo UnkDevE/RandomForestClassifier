@@ -5,8 +5,9 @@ module DesisionTree
     Feature (..),
     Tree (..),
     evaluateZipper,
-    id3,
-    toTree
+    trainTree,
+    predict,
+    predictFail
 )
 where
 

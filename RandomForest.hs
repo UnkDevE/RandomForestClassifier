@@ -7,6 +7,24 @@ import DeisisonTree
 import System.Random
 import Data.List.Split
 
+type Forest a = [Tree a]
+
+mode :: [a] -> a
+mode xs = foldr (\x acc -> if length $ filter (==acc) xs < length $ filter (==x) xs then x else acc) (head xs) $ tail xs
+
+pmf :: [a] -> a -> Double 
+pmf xs x = (fromIntegral $ length $ filter (==x) xs) / (fromIntegral $ length xs)
+
+predictForest :: Forest (Feature, Int) -> [Feature] -> ((Feature, Double)
+predictForest forest input = (fst feature, pmf results feature)
+    where results = map (\tree -> predict tree input) forest
+          feature = mode results
+
+train :: ([[Feature]], Int) -> Int -> Int -> IO Forest (Feature, Int)
+train trainingData models nFeatures = do
+    subs <- subsets trainingData models nFeatures
+    return map trainTree subs
+
 subsets :: ([[Feature]], Int) -> Int -> Int ->  IO [([[Feature]], Int)]
 subsets (features, out) models nFeatures
     | nFeatures > length $ head features = error "nFeatures greater than features available"
