@@ -7,7 +7,8 @@ module DesisionTree
     evaluateZipper,
     trainTree,
     predict,
-    predictFail
+    predictFail,
+    split
 )
 where
 
