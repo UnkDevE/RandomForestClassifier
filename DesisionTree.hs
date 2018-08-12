@@ -57,8 +57,8 @@ entropy trainingData feature =
 
 featureEntropy :: ([[Feature]], Int) -> Int -> Double
 featureEntropy (trainingData, outFeature) feature =
-    foldr (\x acc -> acc + (pmf trainingData feature (fst x)) * entropy (snd x) outFeature) 
-        0 $ zip 
+    foldr (\x acc -> acc + (pmf trainingData feature (fst x)) * entropy (snd x) outFeature)
+        0 $ zip
             (types trainingData feature)
             $ map (\t -> filter (\d -> d!!feature == t) trainingData) $ types trainingData feature
 
@@ -146,15 +146,15 @@ evaluateZipper trainingData zipper@(Node x _, bs)
     where up = goUp zipper
           eval = evaluateData trainingData x
 
-quantiles :: [a] -> [a]
-quantiles xs =  map (((!!) xs) . fromIntegral . ceiling . ((*) (length $ nub xs))) [0.25, 0.5..1] 
+quantiles :: (Eq a) => [a] -> [a]
+quantiles xs =  map (\p -> xs!!(fromIntegral $ ceiling $ p * (fromIntegral $ length $ nub xs))) [0.25, 0.5..1]
 
 quantileBin :: ([[Feature]], Int) -> ([[Feature]], Int)
 quantileBin (tData, outFeature) =
-    (columns $ 
+    (columns $
         cols!!outFeature:(
-            map 
-                (\col -> map (\feature -> foldr (\x acc -> if feature <= acc then x else acc) 0 $ quantiles col) col)
+            map
+                (\col -> map (\feature -> foldr (\x acc -> if feature <= acc then x else acc) (Continous 0) $ quantiles col) col)
                 $ filter (\col -> isContinous $ head col) $ excluding cols outFeature
             )
     , 0)
@@ -170,9 +170,10 @@ id3 trainingData@(features, out) prevZipper@(Node x _, bs)
                                  in if nextZipper /= Nothing then id3 (features, out) (fromJust nextZipper) else newZipper
     | otherwise =
         id3 newFeatures
-            $ fromJust $ goDown $ insertLevel prevZipper $ types (fst newFeatures) $ getBestFeature newFeatures
+            $ fromJust $ goDown $ insertLevel prevZipper $ zip (types (fst newFeatures) $ bestF) $ repeat bestF
     where newFeatures = evaluateZipper trainingData prevZipper
           outSet = column (fst newFeatures) out
+          bestF = getBestFeature newFeatures
 
 id3Debug :: ([[Feature]], Int) -> Zipper (Feature, Int) -> Zipper (Feature, Int)
 id3Debug trainingData@(features, out) prevZipper@(Node x _, bs)
@@ -186,10 +187,10 @@ id3Debug trainingData@(features, out) prevZipper@(Node x _, bs)
         ("classifying newFeatures Length " ++ show (length $ fst newFeatures) ++ " OutSet types: " ++ show (length $ nub outSet)
            ++ "best Feature" ++ show (getBestFeature newFeatures))
         id3Debug newFeatures
-            $ fromJust $ goDown $ insertLevel prevZipper $ types (fst newFeatures) $ getBestFeature newFeatures
-
+            $ fromJust $ goDown $ insertLevel prevZipper $ zip (types (fst newFeatures) $ bestF) $ repeat bestF
     where newFeatures = evaluateZipper trainingData prevZipper
           outSet = column (fst newFeatures) out
+          bestF = getBestFeature newFeatures
 
 toTree :: (Eq a) => Zipper a -> Tree a
 toTree zipper = fst $ root zipper
