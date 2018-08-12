@@ -7,7 +7,6 @@ where
 
 import DesisionTree
 import System.Random (randomRIO)
-import Data.List.Split (chunksOf)
 
 type Forest a = [Tree a]
 
@@ -50,11 +49,4 @@ systematicSample samples xs = do
     let interval = div (length xs) samples
     start <- randomRIO (1, interval)
     return [ x |  y <- [start..], x <- xs, rem y interval == 0]
-
-columns :: [[a]] -> [[a]]
-columns xxs = foldr (\xs acc -> combine acc (chunksOf 1 xs)) (chunksOf 1 $ head xxs) $ tail xxs
-
-combine :: [[a]] -> [[a]] -> [[a]]
-combine xs ys =
-    foldr (\xs acc -> (fst xs) (snd xs):acc) [] $ map (\xs -> ((++) (fst xs), snd xs)) $ zip xs ys
 

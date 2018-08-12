@@ -1,5 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
-
 module DesisionTree
 (
     Feature (..),
@@ -8,12 +6,15 @@ module DesisionTree
     trainTree,
     predict,
     predictFail,
-    split
+    split,
+    columns
 )
 where
 
+import Data.List.Split (chunksOf)
 import Data.List (nub)
 import Data.Maybe (fromJust)
+import Debug.Trace (trace)
 
 readMay :: (Read a) => String -> Maybe a
 readMay s = case reads s of
@@ -31,45 +32,52 @@ instance Read Feature where
 column :: [[a]] -> Int -> [a]
 column grid index = foldr (\xs acc -> xs!!index:acc) [] grid
 
+columns :: [[a]] -> [[a]]
+columns xxs = foldr (\xs acc -> combine acc (chunksOf 1 xs)) (chunksOf 1 $ head xxs) $ tail xxs
+
+combine :: [[a]] -> [[a]] -> [[a]]
+combine xs ys =
+    foldr (\xs acc -> (fst xs) (snd xs):acc) [] $ map (\xs -> ((++) (fst xs), snd xs)) $ zip xs ys
+
 pmf :: [[Feature]] -> Int -> Feature -> Double
 pmf trainingData feature value =
     fromIntegral (length $ filter (==value) col) / (fromIntegral $ length col)
     where col = column trainingData feature
 
-entropy :: [[Feature]] -> Int -> Feature -> Double
-entropy trainingData feature value =
-    negate $ (pmf trainingData feature value) * (logBase 2 $ pmf trainingData feature value)
-
 types :: [[Feature]] -> Int -> [Feature]
 types trainingData feature = nub $ column trainingData feature
 
-featureEntropyProg :: (Feature -> Double -> Double) -> [[Feature]] -> Int -> Double
-featureEntropyProg f trainingData feature =
-    foldr (\x acc -> acc + (f x $ entropy trainingData feature x)) 0 $ types trainingData feature
+fairEntropy :: [[Feature]] -> Int -> Feature -> Double
+fairEntropy trainingData feature value =
+    negate $ (pmf trainingData feature value) * (logBase 2 $ pmf trainingData feature value)
 
-featureEntropy :: [[Feature]] -> Int -> Double
-featureEntropy = featureEntropyProg (\_ x -> x)
+entropy :: [[Feature]] -> Int -> Double
+entropy trainingData feature =
+    foldr (\x acc -> acc + fairEntropy trainingData feature x) 0 $ types trainingData feature
+
+featureEntropy :: ([[Feature]], Int) -> Int -> Double
+featureEntropy (trainingData, outFeature) feature =
+    foldr (\x acc -> acc + (pmf trainingData feature (fst x)) * entropy (snd x) outFeature) 
+        0 $ zip 
+            (types trainingData feature)
+            $ map (\t -> filter (\d -> d!!feature == t) trainingData) $ types trainingData feature
+
 
 informationGain :: ([[Feature]], Int) -> Int -> Double
 informationGain trainingData feature =
-    (featureEntropy (fst trainingData) $ snd trainingData) -
-    (featureEntropyProg (\x h -> h * (pmf (fst trainingData) feature x)) (fst trainingData) feature)
+    (entropy (fst trainingData) $ snd trainingData) - featureEntropy trainingData feature
 
 getBestFeature :: ([[Feature]], Int) -> Int
 getBestFeature trainingData = foldr
-    (\i acc -> if informationGain trainingData acc < informationGain trainingData i then i else acc) 0
+    (\i acc -> if (informationGain trainingData acc < informationGain trainingData i) then i else acc) 0
     $ filter (/= snd trainingData) [1..((length $ head $ fst trainingData) - 1)]
 
 quicksort :: (Ord b) => [(a, b)] -> [(a, b)]
+quicksort [] = []
 quicksort (x:xs) =
     let smallerOrEqual = [a | a <- xs, snd a <= snd x]
         larger = [a | a <- xs, snd a > snd x]
     in quicksort smallerOrEqual ++ [x] ++ quicksort larger
-
-getSplitOrder :: [[Feature]] -> Int -> [(Feature, Int)]
-getSplitOrder trainingData feature =
-    zip (fst $ unzip $ quicksort $ zip t $ map (entropy trainingData feature) t) $ repeat feature
-    where t = types trainingData feature
 
 data Tree a = Node a [Tree a] deriving (Eq, Show)
 
@@ -92,6 +100,7 @@ treeTo (Node x xs, bs) branch
 goRight :: Zipper a -> Maybe (Zipper a)
 goRight (item, NCrumb x ls (nitem:rs):bs) = Just (nitem, NCrumb x (ls ++ [item]) rs:bs)
 goRight (item, NCrumb x ls []:bs) = Nothing
+goRight (item, []) = Nothing
 
 goUp :: Zipper a -> Maybe (Zipper a)
 goUp (item, NCrumb x ls rs:bs) = Just (Node x (ls ++ [item] ++ rs), bs)
@@ -99,13 +108,12 @@ goUp (item, []) = Nothing
 
 root :: (Eq a) => Zipper a -> Zipper a
 root zipper
-    | up /= Nothing = fromJust up
+    | up /= Nothing = root $ fromJust up
     | otherwise = zipper
     where up = goUp zipper
 
 goDown :: Zipper a -> Maybe (Zipper a)
-goDown (Node x (item:xs), bs) = Just (item, NCrumb x (fst splitxs) (snd splitxs):bs)
-    where splitxs = split 1 xs
+goDown (Node x (item:xs), bs) = Just (item, NCrumb x [] (xs):bs)
 goDown (Node x [], bs) = Nothing
 
 next :: (Eq a) => Zipper a -> Maybe (Zipper a)
@@ -138,9 +146,22 @@ evaluateZipper trainingData zipper@(Node x _, bs)
     where up = goUp zipper
           eval = evaluateData trainingData x
 
-getOutputSet :: ([[Feature]],Int) -> Zipper (Feature, Int) -> [Feature]
-getOutputSet trainingData@(feature, out) zipper =
-    column (fst $ evaluateZipper trainingData zipper) out
+quantiles :: [a] -> [a]
+quantiles xs =  map (((!!) xs) . fromIntegral . ceiling . ((*) (length $ nub xs))) [0.25, 0.5..1] 
+
+quantileBin :: ([[Feature]], Int) -> ([[Feature]], Int)
+quantileBin (tData, outFeature) =
+    (columns $ 
+        cols!!outFeature:(
+            map 
+                (\col -> map (\feature -> foldr (\x acc -> if feature <= acc then x else acc) 0 $ quantiles col) col)
+                $ filter (\col -> isContinous $ head col) $ excluding cols outFeature
+            )
+    , 0)
+    where cols = tData
+
+excluding :: [a] -> Int -> [a]
+excluding xs n = fst $ unzip $ filter (\x -> snd x /= n) $ zip xs [0..]
 
 id3 :: ([[Feature]], Int) -> Zipper (Feature, Int) -> Zipper (Feature, Int)
 id3 trainingData@(features, out) prevZipper@(Node x _, bs)
@@ -149,16 +170,35 @@ id3 trainingData@(features, out) prevZipper@(Node x _, bs)
                                  in if nextZipper /= Nothing then id3 (features, out) (fromJust nextZipper) else newZipper
     | otherwise =
         id3 newFeatures
-            $ fromJust $ goDown $ insertLevel prevZipper $ getSplitOrder (fst newFeatures) $ getBestFeature newFeatures
-    where outSet = getOutputSet trainingData prevZipper
-          splitF = split out features
-          newFeatures = ((fst splitF) ++ [outSet] ++ (snd splitF), out)
+            $ fromJust $ goDown $ insertLevel prevZipper $ types (fst newFeatures) $ getBestFeature newFeatures
+    where newFeatures = evaluateZipper trainingData prevZipper
+          outSet = column (fst newFeatures) out
+
+id3Debug :: ([[Feature]], Int) -> Zipper (Feature, Int) -> Zipper (Feature, Int)
+id3Debug trainingData@(features, out) prevZipper@(Node x _, bs)
+    | (length $ nub outSet) == 1 = let newZipper = (Node x [Node (head outSet, out) []], bs)
+                                       nextZipper = next newZipper
+                                 in if nextZipper /= Nothing then trace
+                                    ("classified. nextZipper" ++ show nextZipper)
+                                    id3Debug (features, out) (fromJust nextZipper) else newZipper
+    | otherwise =
+        trace
+        ("classifying newFeatures Length " ++ show (length $ fst newFeatures) ++ " OutSet types: " ++ show (length $ nub outSet)
+           ++ "best Feature" ++ show (getBestFeature newFeatures))
+        id3Debug newFeatures
+            $ fromJust $ goDown $ insertLevel prevZipper $ types (fst newFeatures) $ getBestFeature newFeatures
+
+    where newFeatures = evaluateZipper trainingData prevZipper
+          outSet = column (fst newFeatures) out
 
 toTree :: (Eq a) => Zipper a -> Tree a
 toTree zipper = fst $ root zipper
 
 trainTree :: ([[Feature]], Int) -> Tree (Feature, Int)
-trainTree trainingData = toTree $ id3 trainingData (Node (Any, 0) [], [])
+trainTree trainingData = toTree $ id3 (quantileBin trainingData) (Node (Any, 0) [], [])
+
+trainTreeDebug :: ([[Feature]], Int) -> Tree (Feature, Int)
+trainTreeDebug trainingData = toTree $ id3Debug (quantileBin trainingData) (Node (Any, 0) [], [])
 
 eval :: Zipper (Feature, Int) -> Feature -> Bool
 eval (Node x _, _) feature
@@ -174,10 +214,10 @@ navigate zipper@(Node (_, nfeature) _, _) input
                   in if n /= Nothing then navigate (fromJust n) input else zipper
 
 getNode :: Tree a -> a
-getNode (Node x _) = x 
+getNode (Node x _) = x
 
 predict :: Tree (Feature, Int) -> [Feature] -> (Feature, Int)
-predict tree input = getNode $ fst $ navigate (tree, []) input 
+predict tree input = getNode $ fst $ navigate (tree, []) input
 
 predictFail :: ([[Feature]], Int) -> (Feature, Int) -> Bool
 predictFail (_, outf) (_, fNo) = outf == fNo
