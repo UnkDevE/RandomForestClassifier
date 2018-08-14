@@ -53,7 +53,7 @@ fairEntropy trainingData feature value =
 
 entropy :: [[Feature]] -> Int -> Double
 entropy trainingData feature =
-    foldr (\x acc -> acc + fairEntropy trainingData feature x) 0 $ types trainingData feature
+    sum $ map (fairEntropy trainingData feature) $ types trainingData feature
 
 featureEntropy :: ([[Feature]], Int) -> Int -> Double
 featureEntropy (trainingData, outFeature) feature =
@@ -69,8 +69,9 @@ informationGain trainingData feature =
 
 getBestFeature :: ([[Feature]], Int) -> Int
 getBestFeature trainingData = foldr
-    (\i acc -> if (informationGain trainingData acc < informationGain trainingData i) then i else acc) 0
-    $ filter (/= snd trainingData) [1..((length $ head $ fst trainingData) - 1)]
+    (\i acc -> if (informationGain trainingData acc < informationGain trainingData i) then i else acc)
+    (head features) (tail features)
+    where features = filter (/= snd trainingData) [0..((length $ head $ fst trainingData) - 1)]
 
 quicksort :: (Ord b) => [(a, b)] -> [(a, b)]
 quicksort [] = []
@@ -119,8 +120,9 @@ goDown (Node x [], bs) = Nothing
 next :: (Eq a) => Zipper a -> Maybe (Zipper a)
 next zipper
     | right /= Nothing = right
-    | otherwise = goUp zipper
+    | up /= Nothing = goRight (fromJust up)
     where right = goRight zipper
+          up = goUp zipper
 
 insertLevel :: Zipper a -> [a] -> Zipper a
 insertLevel (Node x _, bs) xs = (Node x (map (\x -> Node x []) xs), bs)
@@ -135,8 +137,7 @@ isContinous _ = False
 
 evaluateData :: ([[Feature]], Int) -> (Feature, Int) -> ([[Feature]], Int)
 evaluateData (features, out) (desision, feature)
-    | isDiscrete desision = (filter (\xs -> xs!!feature == desision) features, out)
-    | isContinous desision = (filter (\xs -> xs!!feature <= desision) features, out)
+    | isDiscrete desision || isContinous desision = (filter (\xs -> xs!!feature == desision) features, out)
     | otherwise = (features, out)
 
 evaluateZipper :: ([[Feature]], Int) -> Zipper (Feature, Int) -> ([[Feature]], Int)
@@ -154,11 +155,14 @@ quantileBin (tData, outFeature) =
     (columns $
         cols!!outFeature:(
             map
-                (\col -> map (\feature -> foldr (\x acc -> if feature <= acc then x else acc) (Continous 0) $ quantiles col) col)
-                $ filter (\col -> isContinous $ head col) $ excluding cols outFeature
-            )
+                (\col -> map (\feature -> foldr (\x acc -> if feature <= acc then acc else x) (Continous 0) $ quantiles col) col)
+                $ filter (\col -> isContinous $ head col) $ contCols
+            ) ++ discCols
     , 0)
-    where cols = tData
+    where contCols = filter (\col -> isContinous $ head col) useableCols
+          discCols = filter (\col -> isDiscrete $ head col) useableCols
+          useableCols = excluding cols outFeature
+          cols = columns tData
 
 excluding :: [a] -> Int -> [a]
 excluding xs n = fst $ unzip $ filter (\x -> snd x /= n) $ zip xs [0..]
@@ -181,12 +185,12 @@ id3Debug trainingData@(features, out) prevZipper@(Node x _, bs)
                                        nextZipper = next newZipper
                                  in if nextZipper /= Nothing then trace
                                     ("classified. nextZipper" ++ show nextZipper)
-                                    id3Debug (features, out) (fromJust nextZipper) else newZipper
+                                    id3Debug trainingData (fromJust nextZipper) else newZipper
     | otherwise =
         trace
         ("classifying newFeatures Length " ++ show (length $ fst newFeatures) ++ " OutSet types: " ++ show (length $ nub outSet)
-           ++ "best Feature" ++ show (getBestFeature newFeatures))
-        id3Debug newFeatures
+           ++ "best Feature" ++ show (getBestFeature newFeatures) ++ "prevZipper" ++ show prevZipper)
+        id3Debug trainingData 
             $ fromJust $ goDown $ insertLevel prevZipper $ zip (types (fst newFeatures) $ bestF) $ repeat bestF
     where newFeatures = evaluateZipper trainingData prevZipper
           outSet = column (fst newFeatures) out
